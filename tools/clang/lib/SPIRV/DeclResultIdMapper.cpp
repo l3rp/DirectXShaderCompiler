@@ -2647,7 +2647,7 @@ bool DeclResultIdMapper::decorateResourceBindings() {
     // element. We can match this behavior via a command line option.
     uint32_t numBindingsToUse = 1;
     if (spirvOptions.flattenResourceArrays ||
-        spirvOptions.flattenResourceArrayBindingsOnly ||
+        spirvOptions.dxResourceArrayBinding ||
         needsFlatteningCompositeResources)
       numBindingsToUse = getNumBindingsUsedByResourceType(
           var.getSpirvInstr()->getAstResultType());
@@ -2739,7 +2739,7 @@ bool DeclResultIdMapper::decorateResourceBindings() {
     // element. We can match this behavior via a command line option.
     uint32_t numBindingsToUse = 1;
     if (spirvOptions.flattenResourceArrays ||
-        spirvOptions.flattenResourceArrayBindingsOnly ||
+        spirvOptions.dxResourceArrayBinding ||
         needsFlatteningCompositeResources)
       numBindingsToUse = getNumBindingsUsedByResourceType(
           var.getSpirvInstr()->getAstResultType());

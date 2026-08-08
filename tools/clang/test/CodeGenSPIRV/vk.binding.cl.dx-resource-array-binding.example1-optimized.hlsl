@@ -1,4 +1,4 @@
-// RUN: %dxc -T ps_6_0 -E main -fspv-flatten-resource-array-bindings-only -O3  %s -spirv | FileCheck %s
+// RUN: %dxc -T ps_6_0 -E main -fspv-dx-resource-array-binding -O3  %s -spirv | FileCheck %s
 
 // The array is NOT split into individual variables (unlike
 // -fspv-flatten-resource-arrays): MyTextures/MySamplers stay as single

@@ -1,4 +1,4 @@
-// RUN: %dxc -T ps_6_0 -E main -fspv-flatten-resource-array-bindings-only -fcgl  %s -spirv | FileCheck %s
+// RUN: %dxc -T ps_6_0 -E main -fspv-dx-resource-array-binding -fcgl  %s -spirv | FileCheck %s
 
 // CHECK: OpDecorate %MyTextures Binding 0
 // CHECK: OpDecorate %AnotherTexture Binding 5
