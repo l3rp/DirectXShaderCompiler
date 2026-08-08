@@ -606,6 +606,16 @@ bool DxilModule::GetLegacyResourceReservation() const {
   return (m_IntermediateFlags & LegacyResourceReservation) != 0;
 }
 
+void DxilModule::SetSequentialAutoBindings(bool sequentialAutoBindings) {
+  m_IntermediateFlags &= ~SequentialAutoBindings;
+  if (sequentialAutoBindings)
+    m_IntermediateFlags |= SequentialAutoBindings;
+}
+
+bool DxilModule::GetSequentialAutoBindings() const {
+  return (m_IntermediateFlags & SequentialAutoBindings) != 0;
+}
+
 void DxilModule::ClearIntermediateOptions() { m_IntermediateFlags = 0; }
 
 unsigned DxilModule::GetInputControlPointCount() const {

@@ -118,11 +118,11 @@ private:
   }
 
   template <typename T>
-  static bool
-  AllocateRegisters(LLVMContext &Ctx,
-                    const std::vector<std::unique_ptr<T>> &resourceList,
-                    SpacesAllocator<unsigned, T> &ReservedRegisters,
-                    unsigned AutoBindingSpace) {
+  static bool AllocateRegisters(
+      LLVMContext &Ctx, const std::vector<std::unique_ptr<T>> &resourceList,
+      SpacesAllocator<unsigned, T> &ReservedRegisters,
+      unsigned AutoBindingSpace,
+      SpacesAllocator<unsigned, hlsl::DxilResourceBase> *SequentialRegisters) {
     bool bChanged = false;
     SpacesAllocator<unsigned, T> SAlloc;
 
@@ -136,6 +136,18 @@ private:
 
       if (res->IsAllocated()) {
         const unsigned reg = res->GetLowerBound();
+        if (SequentialRegisters) {
+          // Mark this register as taken in the cross-type allocator too, so
+          // that auto-generated bindings (of any register type) never reuse
+          // it. This never reports a conflict: an explicit register in one
+          // type (e.g. t0) is not an error just because another type (e.g.
+          // s0) also uses it.
+          auto &sharedAlloc = SequentialRegisters->Get(space);
+          sharedAlloc.ForceInsertAndClobber(res.get(), reg,
+                                            res->GetUpperBound());
+          if (res->IsUnbounded())
+            sharedAlloc.SetUnbounded(res.get());
+        }
         const T *conflict = nullptr;
         if (res->IsUnbounded()) {
           const T *unbounded = alloc.GetUnbounded();
@@ -186,6 +198,9 @@ private:
           SAlloc.Get(space);
       typename SpacesAllocator<unsigned, T>::Allocator &reservedAlloc =
           ReservedRegisters.Get(space);
+      SpacesAllocator<unsigned, hlsl::DxilResourceBase>::Allocator
+          *sharedAlloc =
+              SequentialRegisters ? &SequentialRegisters->Get(space) : nullptr;
 
       unsigned reg = 0;
       unsigned end = 0;
@@ -201,11 +216,17 @@ private:
           continue;
         }
 
-        if (reservedAlloc.FindForUnbounded(reg)) {
+        // When assigning sequential auto-bindings, find the next free
+        // register across all register types instead of just this one, so
+        // that e.g. a texture doesn't reuse the number an earlier
+        // auto-bound sampler already took.
+        if (sharedAlloc ? sharedAlloc->FindForUnbounded(reg)
+                        : reservedAlloc.FindForUnbounded(reg)) {
           end = UINT_MAX;
           allocateSpaceFound = true;
         }
-      } else if (reservedAlloc.Find(res->GetRangeSize(), reg)) {
+      } else if (sharedAlloc ? sharedAlloc->Find(res->GetRangeSize(), reg)
+                             : reservedAlloc.Find(res->GetRangeSize(), reg)) {
         end = reg + res->GetRangeSize() - 1;
         allocateSpaceFound = true;
       }
@@ -216,6 +237,13 @@ private:
 
         success = alloc.Insert(res.get(), reg, end) == nullptr;
         DXASSERT_NOMSG(success);
+
+        if (sharedAlloc) {
+          success = sharedAlloc->Insert(res.get(), reg, end) == nullptr;
+          DXASSERT_NOMSG(success);
+          if (res->IsUnbounded())
+            sharedAlloc->SetUnbounded(res.get());
+        }
 
         if (res->IsUnbounded()) {
           alloc.SetUnbounded(res.get());
@@ -260,15 +288,27 @@ public:
       AutoBindingSpace = 0;
     }
 
+    // When sequential auto-bindings are requested, auto-generated bindings
+    // (b/t/u/s) draw from one shared per-space counter instead of one
+    // independent counter per register type, so they never land on the same
+    // number. Explicit register/binding assignments are never affected.
+    SpacesAllocator<unsigned, hlsl::DxilResourceBase> SequentialRegisters;
+    SpacesAllocator<unsigned, hlsl::DxilResourceBase> *pSequentialRegisters =
+        DM.GetSequentialAutoBindings() ? &SequentialRegisters : nullptr;
+
     bool bChanged = false;
     bChanged |= AllocateRegisters(DM.GetCtx(), DM.GetCBuffers(),
-                                  m_reservedCBufferRegisters, AutoBindingSpace);
+                                  m_reservedCBufferRegisters, AutoBindingSpace,
+                                  pSequentialRegisters);
     bChanged |= AllocateRegisters(DM.GetCtx(), DM.GetSamplers(),
-                                  m_reservedSamplerRegisters, AutoBindingSpace);
-    bChanged |= AllocateRegisters(DM.GetCtx(), DM.GetUAVs(),
-                                  m_reservedUAVRegisters, AutoBindingSpace);
-    bChanged |= AllocateRegisters(DM.GetCtx(), DM.GetSRVs(),
-                                  m_reservedSRVRegisters, AutoBindingSpace);
+                                  m_reservedSamplerRegisters, AutoBindingSpace,
+                                  pSequentialRegisters);
+    bChanged |=
+        AllocateRegisters(DM.GetCtx(), DM.GetUAVs(), m_reservedUAVRegisters,
+                          AutoBindingSpace, pSequentialRegisters);
+    bChanged |=
+        AllocateRegisters(DM.GetCtx(), DM.GetSRVs(), m_reservedSRVRegisters,
+                          AutoBindingSpace, pSequentialRegisters);
     return bChanged;
   }
 };
