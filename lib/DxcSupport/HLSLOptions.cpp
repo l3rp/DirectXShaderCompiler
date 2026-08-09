@@ -866,6 +866,13 @@ int ReadDxcOpts(const OptTable *optionTable, unsigned flagsToInclude,
       Args.hasFlag(OPT_flegacy_macro_expansion, OPT_INVALID, false);
   opts.LegacyResourceReservation =
       Args.hasFlag(OPT_flegacy_resource_reservation, OPT_INVALID, false);
+  opts.SequentialAutoBindings =
+      Args.hasFlag(OPT_fsequential_auto_bindings, OPT_INVALID, false);
+  if (opts.SequentialAutoBindings && opts.LegacyResourceReservation) {
+    errors << "-fsequential-auto-bindings cannot be used together with "
+              "-flegacy-resource-reservation";
+    return 1;
+  }
   opts.ExportShadersOnly =
       Args.hasFlag(OPT_export_shaders_only, OPT_INVALID, false);
   opts.PrintBeforeAll = Args.hasFlag(OPT_print_before_all, OPT_INVALID, false);

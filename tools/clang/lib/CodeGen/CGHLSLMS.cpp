@@ -409,6 +409,8 @@ CGMSHLSLRuntime::CGMSHLSLRuntime(CodeGenModule &CGM)
   opts.PackingStrategy = CGM.getCodeGenOpts().HLSLSignaturePackingStrategy;
   opts.bLegacyResourceReservation =
       CGM.getCodeGenOpts().HLSLLegacyResourceReservation;
+  opts.bSequentialAutoBindings =
+      CGM.getCodeGenOpts().HLSLSequentialAutoBindings;
   opts.bForceZeroStoreLifetimes =
       CGM.getCodeGenOpts().HLSLForceZeroStoreLifetimes;
 
@@ -2200,9 +2202,11 @@ void CGMSHLSLRuntime::AddHLSLFunctionInfo(Function *F, const FunctionDecl *FD) {
         funcProps->ShaderProps.HS.inputControlPoints =
             GetHLSLInputPatchCount(parmDecl->getType());
       } else if (isGS) {
-        inputPrimitive = (DXIL::InputPrimitive)(
-            (unsigned)DXIL::InputPrimitive::ControlPointPatch1 +
-            GetHLSLInputPatchCount(parmDecl->getType()) - 1);
+        inputPrimitive =
+            (DXIL::InputPrimitive)((unsigned)DXIL::InputPrimitive::
+                                       ControlPointPatch1 +
+                                   GetHLSLInputPatchCount(parmDecl->getType()) -
+                                   1);
       }
     } else if (IsHLSLStreamOutputType(parmDecl->getType())) {
       // TODO: validation this at ASTContext::getFunctionType in

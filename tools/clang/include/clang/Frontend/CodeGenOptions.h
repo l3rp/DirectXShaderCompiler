@@ -14,17 +14,17 @@
 #ifndef LLVM_CLANG_FRONTEND_CODEGENOPTIONS_H
 #define LLVM_CLANG_FRONTEND_CODEGENOPTIONS_H
 
+#include "dxc/DxcBindingTable/DxcBindingTable.h"  // HLSL change
+#include "dxc/HLSL/HLSLExtensionsCodegenHelper.h" // HLSL change
+#include "dxc/Support/DxcOptToggles.h"            // HLSL change
+#include "dxc/Support/SPIRVOptions.h"             // SPIR-V Change
 #include "clang/Basic/Sanitizers.h"
 #include "llvm/Support/Regex.h"
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
-#include <map>
-#include <set>
-#include "dxc/HLSL/HLSLExtensionsCodegenHelper.h" // HLSL change
-#include "dxc/Support/SPIRVOptions.h" // SPIR-V Change
-#include "dxc/DxcBindingTable/DxcBindingTable.h" // HLSL change
-#include "dxc/Support/DxcOptToggles.h" // HLSL change
 
 namespace clang {
 
@@ -47,9 +47,9 @@ protected:
 class CodeGenOptions : public CodeGenOptionsBase {
 public:
   enum InliningMethod {
-    NoInlining,         // Perform no inlining whatsoever.
-    NormalInlining,     // Use the standard function inlining pass.
-    OnlyAlwaysInlining  // Only run the always inlining pass.
+    NoInlining,        // Perform no inlining whatsoever.
+    NormalInlining,    // Use the standard function inlining pass.
+    OnlyAlwaysInlining // Only run the always inlining pass.
   };
 
   enum VectorLibrary {
@@ -57,34 +57,30 @@ public:
     Accelerate // Use the Accelerate framework.
   };
 
-  enum ObjCDispatchMethodKind {
-    Legacy = 0,
-    NonLegacy = 1,
-    Mixed = 2
-  };
+  enum ObjCDispatchMethodKind { Legacy = 0, NonLegacy = 1, Mixed = 2 };
 
   enum DebugInfoKind {
-    NoDebugInfo,          /// Don't generate debug info.
+    NoDebugInfo, /// Don't generate debug info.
 
-    LocTrackingOnly,      /// Emit location information but do not generate
-                          /// debug info in the output. This is useful in
-                          /// cases where the backend wants to track source
-                          /// locations for instructions without actually
-                          /// emitting debug info for them (e.g., when -Rpass
-                          /// is used).
+    LocTrackingOnly, /// Emit location information but do not generate
+                     /// debug info in the output. This is useful in
+                     /// cases where the backend wants to track source
+                     /// locations for instructions without actually
+                     /// emitting debug info for them (e.g., when -Rpass
+                     /// is used).
 
-    DebugLineTablesOnly,  /// Emit only debug info necessary for generating
-                          /// line number tables (-gline-tables-only).
+    DebugLineTablesOnly, /// Emit only debug info necessary for generating
+                         /// line number tables (-gline-tables-only).
 
-    LimitedDebugInfo,     /// Limit generated debug info to reduce size
-                          /// (-fno-standalone-debug). This emits
-                          /// forward decls for types that could be
-                          /// replaced with forward decls in the source
-                          /// code. For dynamic C++ classes type info
-                          /// is only emitted int the module that
-                          /// contains the classe's vtable.
+    LimitedDebugInfo, /// Limit generated debug info to reduce size
+                      /// (-fno-standalone-debug). This emits
+                      /// forward decls for types that could be
+                      /// replaced with forward decls in the source
+                      /// code. For dynamic C++ classes type info
+                      /// is only emitted int the module that
+                      /// contains the classe's vtable.
 
-    FullDebugInfo         /// Generate complete debug info.
+    FullDebugInfo /// Generate complete debug info.
   };
 
   enum TLSModel {
@@ -95,15 +91,15 @@ public:
   };
 
   enum FPContractModeKind {
-    FPC_Off,        // Form fused FP ops only where result will not be affected.
-    FPC_On,         // Form fused FP ops according to FP_CONTRACT rules.
-    FPC_Fast        // Aggressively fuse FP ops (E.g. FMA).
+    FPC_Off, // Form fused FP ops only where result will not be affected.
+    FPC_On,  // Form fused FP ops according to FP_CONTRACT rules.
+    FPC_Fast // Aggressively fuse FP ops (E.g. FMA).
   };
 
   enum StructReturnConventionKind {
-    SRCK_Default,  // No special option was passed.
-    SRCK_OnStack,  // Small structs on the stack (-fpcc-struct-return).
-    SRCK_InRegs    // Small structs in registers (-freg-struct-return).
+    SRCK_Default, // No special option was passed.
+    SRCK_OnStack, // Small structs on the stack (-fpcc-struct-return).
+    SRCK_InRegs   // Small structs in registers (-freg-struct-return).
   };
 
   /// The code model to use (-mcmodel).
@@ -187,17 +183,22 @@ public:
   bool HLSLOnlyWarnOnUnrollFail = false;
   /// Whether use legacy resource reservation.
   bool HLSLLegacyResourceReservation = false;
+  /// Whether to assign auto-generated resource bindings sequentially across
+  /// register types instead of independently per type.
+  bool HLSLSequentialAutoBindings = false;
   /// Set [branch] on every if.
   bool HLSLPreferControlFlow = false;
   /// Set [flatten] on every if.
   bool HLSLAvoidControlFlow = false;
   /// Force [flatten] on every if.
   bool HLSLAllResourcesBound = false;
-  /// Skip adding optional semantics defines except ones which are required for correctness.
+  /// Skip adding optional semantics defines except ones which are required for
+  /// correctness.
   bool HLSLIgnoreOptSemDefs = false;
   /// List of semantic defines that must be ignored.
   std::set<std::string> HLSLIgnoreSemDefs;
-  /// List of semantic defines that must be overridden with user-provided values.
+  /// List of semantic defines that must be overridden with user-provided
+  /// values.
   std::map<std::string, std::string> HLSLOverrideSemDefs;
   /// Major version of validator to run.
   unsigned HLSLValidatorMajorVer = 0;
@@ -215,7 +216,8 @@ public:
   unsigned HLSLSignaturePackingStrategy = 0;
   /// denormalized number mode ("ieee" for default)
   hlsl::DXIL::Float32DenormMode HLSLFloat32DenormMode;
-  /// HLSLDefaultSpace also enables automatic binding for libraries if set. UINT_MAX == unset
+  /// HLSLDefaultSpace also enables automatic binding for libraries if set.
+  /// UINT_MAX == unset
   unsigned HLSLDefaultSpace = UINT_MAX;
   /// HLSLLibraryExports specifies desired exports, with optional renaming
   std::vector<std::string> HLSLLibraryExports;
@@ -223,7 +225,8 @@ public:
   bool ExportShadersOnly = false;
   /// DefaultLinkage Internal, External, or Default.  If Default, default
   /// function linkage is determined by library target.
-  hlsl::DXIL::DefaultLinkage DefaultLinkage = hlsl::DXIL::DefaultLinkage::Default;
+  hlsl::DXIL::DefaultLinkage DefaultLinkage =
+      hlsl::DXIL::DefaultLinkage::Default;
   /// Assume UAVs/SRVs may alias.
   bool HLSLResMayAlias = false;
   /// Lookback scan limit for memory dependencies
@@ -244,14 +247,15 @@ public:
   bool HLSLEnableLifetimeMarkers = false;
   /// Put shader sources and options in the module
   bool HLSLEmbedSourcesInModule = false;
-  /// Enable generation of payload access qualifier metadata. 
+  /// Enable generation of payload access qualifier metadata.
   bool HLSLEnablePayloadAccessQualifiers = false;
   /// Binding table for HLSL resources
   hlsl::DxcBindingTable HLSLBindingTable;
   /// Binding table #define
   struct BindingTableParserType {
-    virtual ~BindingTableParserType() {};
-    virtual bool Parse(llvm::raw_ostream &os, hlsl::DxcBindingTable *outBindingTable) = 0;
+    virtual ~BindingTableParserType(){};
+    virtual bool Parse(llvm::raw_ostream &os,
+                       hlsl::DxcBindingTable *outBindingTable) = 0;
   };
   std::shared_ptr<BindingTableParserType> BindingTableParser;
   // HLSL Change Ends
@@ -297,14 +301,14 @@ public:
 public:
   // Define accessors/mutators for code generation options of enumeration type.
 #define CODEGENOPT(Name, Bits, Default)
-#define ENUM_CODEGENOPT(Name, Type, Bits, Default) \
-  Type get##Name() const { return static_cast<Type>(Name); } \
+#define ENUM_CODEGENOPT(Name, Type, Bits, Default)                             \
+  Type get##Name() const { return static_cast<Type>(Name); }                   \
   void set##Name(Type Value) { Name = static_cast<unsigned>(Value); }
 #include "clang/Frontend/CodeGenOptions.def"
 
   CodeGenOptions();
 };
 
-}  // end namespace clang
+} // end namespace clang
 
 #endif
