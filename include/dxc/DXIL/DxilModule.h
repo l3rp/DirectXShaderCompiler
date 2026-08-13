@@ -111,6 +111,18 @@ public:
   const DxilResource &GetUAV(unsigned idx) const;
   const std::vector<std::unique_ptr<DxilResource>> &GetUAVs() const;
 
+  // Global name of each resource, in the order it was declared in the
+  // source, across all resource classes, carried over from HLModule. Used
+  // by -fsequential-auto-bindings to assign registers in declaration order
+  // instead of bucketing by resource class first. Identifying resources by
+  // name rather than by (Class, ID) or global symbol means this stays
+  // valid even though: RemoveResourcesWithUnusedSymbols() can remove
+  // unused resources and shift everyone else's index, and a cbuffer's
+  // global symbol isn't actually set until FinishCBuffer runs, well after
+  // declaration order is recorded.
+  void SetResourceDeclOrder(const std::vector<std::string> &DeclOrder);
+  const std::vector<std::string> &GetResourceDeclOrder() const;
+
   void RemoveUnusedResources();
   void RemoveResourcesWithUnusedSymbols();
   void RemoveFunction(llvm::Function *F);
@@ -343,6 +355,7 @@ private:
   std::vector<std::unique_ptr<DxilResource>> m_UAVs;
   std::vector<std::unique_ptr<DxilCBuffer>> m_CBuffers;
   std::vector<std::unique_ptr<DxilSampler>> m_Samplers;
+  std::vector<std::string> m_ResourceDeclOrder;
 
   // Geometry shader.
   DXIL::PrimitiveTopology m_StreamPrimitiveTopology =
