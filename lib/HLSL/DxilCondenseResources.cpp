@@ -26,8 +26,10 @@
 #include "llvm/Analysis/DxilValueCache.h"
 
 #include "llvm/ADT/BitVector.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/InstIterator.h"
@@ -37,6 +39,7 @@
 #include "llvm/IR/PassManager.h"
 #include "llvm/Pass.h"
 #include "llvm/Transforms/Utils/Local.h"
+#include <algorithm>
 #include <memory>
 #include <unordered_set>
 
@@ -186,28 +189,136 @@ private:
       }
     }
 
-    // Allocate unallocated resources
-    for (auto &res : resourceList) {
+    // Allocate unallocated resources. When sequential auto-bindings are
+    // enabled, this is skipped here and instead done once, across every
+    // resource class together in true declaration order, by
+    // AllocateSequentialUnallocatedRegisters below. Doing it per class here
+    // (even with a shared allocator) would still bucket resources by type
+    // before assigning numbers, rather than interleaving them the way they
+    // were actually declared.
+    if (!SequentialRegisters) {
+      for (auto &res : resourceList) {
+        if (res->IsAllocated())
+          continue;
+
+        unsigned space = res->GetSpaceID();
+        if (space == UINT_MAX)
+          space = AutoBindingSpace;
+        typename SpacesAllocator<unsigned, T>::Allocator &alloc =
+            SAlloc.Get(space);
+        typename SpacesAllocator<unsigned, T>::Allocator &reservedAlloc =
+            ReservedRegisters.Get(space);
+
+        unsigned reg = 0;
+        unsigned end = 0;
+        bool allocateSpaceFound = false;
+        if (res->IsUnbounded()) {
+          if (alloc.GetUnbounded() != nullptr) {
+            const T *unbounded = alloc.GetUnbounded();
+            dxilutil::EmitErrorOnGlobalVariable(
+                Ctx, dyn_cast<GlobalVariable>(res->GetGlobalSymbol()),
+                Twine("more than one unbounded resource (") +
+                    unbounded->GetGlobalName() + Twine(" and ") +
+                    res->GetGlobalName() + Twine(") in space ") + Twine(space));
+            continue;
+          }
+
+          if (reservedAlloc.FindForUnbounded(reg)) {
+            end = UINT_MAX;
+            allocateSpaceFound = true;
+          }
+        } else if (reservedAlloc.Find(res->GetRangeSize(), reg)) {
+          end = reg + res->GetRangeSize() - 1;
+          allocateSpaceFound = true;
+        }
+
+        if (allocateSpaceFound) {
+          bool success = reservedAlloc.Insert(res.get(), reg, end) == nullptr;
+          DXASSERT_NOMSG(success);
+
+          success = alloc.Insert(res.get(), reg, end) == nullptr;
+          DXASSERT_NOMSG(success);
+
+          if (res->IsUnbounded()) {
+            alloc.SetUnbounded(res.get());
+            reservedAlloc.SetUnbounded(res.get());
+          }
+
+          res->SetLowerBound(reg);
+          res->SetSpaceID(space);
+          bChanged = true;
+        } else {
+          dxilutil::EmitErrorOnGlobalVariable(
+              Ctx, dyn_cast<GlobalVariable>(res->GetGlobalSymbol()),
+              ((res->IsUnbounded()) ? Twine("unbounded ") : Twine("")) +
+                  Twine("resource ") + res->GetGlobalName() +
+                  Twine(" could not be allocated"));
+        }
+      }
+    }
+
+    return bChanged;
+  }
+
+  // Allocates registers for resources with no explicit register assignment
+  // at all, across every resource class together, in the order they were
+  // declared in the source. Walks DM.GetResourceDeclOrder(), which
+  // CGMSHLSLRuntime::addResource populates (via HLModule) by recording each
+  // resource's global name as it walks top-level decls, in one list shared
+  // across all resource classes. Module global-variable order can't be
+  // used for this instead, because cbuffers get their final GlobalVariable
+  // created late, in FinishCBuffer, well after other resource types have
+  // already gotten theirs, which would bucket cbuffers to the end
+  // regardless of where they were declared. This is what makes
+  // -fsequential-auto-bindings produce e.g. t0, s1, b2 for a texture then a
+  // sampler then a buffer declared in that order, instead of bucketing all
+  // textures, then all samplers, then all buffers.
+  //
+  // Resources are looked up by name (unique at global scope by HLSL's own
+  // rules) rather than by (class, index) or global symbol, because: (1)
+  // RemoveResourcesWithUnusedSymbols() runs between when this declaration
+  // order is recorded (during HLSL codegen) and when it's used here, and
+  // removing resources shifts everyone else's index; (2) a cbuffer's
+  // global symbol isn't actually set until FinishCBuffer runs, well after
+  // declaration order is recorded, so it reads as null at that point. A
+  // resource whose name isn't found here was removed as unused and is
+  // simply skipped.
+  static bool AllocateSequentialUnallocatedRegisters(
+      DxilModule &DM,
+      SpacesAllocator<unsigned, hlsl::DxilResourceBase> &SequentialRegisters,
+      unsigned AutoBindingSpace) {
+    StringMap<DxilResourceBase *> resourcesByName;
+    auto indexResources = [&resourcesByName](auto &resourceList) {
+      for (auto &res : resourceList)
+        resourcesByName[res->GetGlobalName()] = res.get();
+    };
+    indexResources(DM.GetCBuffers());
+    indexResources(DM.GetSamplers());
+    indexResources(DM.GetUAVs());
+    indexResources(DM.GetSRVs());
+
+    bool bChanged = false;
+    LLVMContext &Ctx = DM.GetCtx();
+    for (const std::string &GlobalName : DM.GetResourceDeclOrder()) {
+      auto it = resourcesByName.find(GlobalName);
+      if (it == resourcesByName.end())
+        continue;
+      DxilResourceBase *res = it->second;
       if (res->IsAllocated())
         continue;
 
       unsigned space = res->GetSpaceID();
       if (space == UINT_MAX)
         space = AutoBindingSpace;
-      typename SpacesAllocator<unsigned, T>::Allocator &alloc =
-          SAlloc.Get(space);
-      typename SpacesAllocator<unsigned, T>::Allocator &reservedAlloc =
-          ReservedRegisters.Get(space);
-      SpacesAllocator<unsigned, hlsl::DxilResourceBase>::Allocator
-          *sharedAlloc =
-              SequentialRegisters ? &SequentialRegisters->Get(space) : nullptr;
+      SpacesAllocator<unsigned, hlsl::DxilResourceBase>::Allocator &alloc =
+          SequentialRegisters.Get(space);
 
       unsigned reg = 0;
       unsigned end = 0;
       bool allocateSpaceFound = false;
       if (res->IsUnbounded()) {
         if (alloc.GetUnbounded() != nullptr) {
-          const T *unbounded = alloc.GetUnbounded();
+          const DxilResourceBase *unbounded = alloc.GetUnbounded();
           dxilutil::EmitErrorOnGlobalVariable(
               Ctx, dyn_cast<GlobalVariable>(res->GetGlobalSymbol()),
               Twine("more than one unbounded resource (") +
@@ -216,39 +327,21 @@ private:
           continue;
         }
 
-        // When assigning sequential auto-bindings, find the next free
-        // register across all register types instead of just this one, so
-        // that e.g. a texture doesn't reuse the number an earlier
-        // auto-bound sampler already took.
-        if (sharedAlloc ? sharedAlloc->FindForUnbounded(reg)
-                        : reservedAlloc.FindForUnbounded(reg)) {
+        if (alloc.FindForUnbounded(reg)) {
           end = UINT_MAX;
           allocateSpaceFound = true;
         }
-      } else if (sharedAlloc ? sharedAlloc->Find(res->GetRangeSize(), reg)
-                             : reservedAlloc.Find(res->GetRangeSize(), reg)) {
+      } else if (alloc.Find(res->GetRangeSize(), reg)) {
         end = reg + res->GetRangeSize() - 1;
         allocateSpaceFound = true;
       }
 
       if (allocateSpaceFound) {
-        bool success = reservedAlloc.Insert(res.get(), reg, end) == nullptr;
+        bool success = alloc.Insert(res, reg, end) == nullptr;
         DXASSERT_NOMSG(success);
-
-        success = alloc.Insert(res.get(), reg, end) == nullptr;
-        DXASSERT_NOMSG(success);
-
-        if (sharedAlloc) {
-          success = sharedAlloc->Insert(res.get(), reg, end) == nullptr;
-          DXASSERT_NOMSG(success);
-          if (res->IsUnbounded())
-            sharedAlloc->SetUnbounded(res.get());
-        }
-
-        if (res->IsUnbounded()) {
-          alloc.SetUnbounded(res.get());
-          reservedAlloc.SetUnbounded(res.get());
-        }
+        (void)success;
+        if (res->IsUnbounded())
+          alloc.SetUnbounded(res);
 
         res->SetLowerBound(reg);
         res->SetSpaceID(space);
@@ -261,7 +354,6 @@ private:
                 Twine(" could not be allocated"));
       }
     }
-
     return bChanged;
   }
 
@@ -309,6 +401,15 @@ public:
     bChanged |=
         AllocateRegisters(DM.GetCtx(), DM.GetSRVs(), m_reservedSRVRegisters,
                           AutoBindingSpace, pSequentialRegisters);
+
+    // Now that every resource class has had its explicit registers
+    // reserved into SequentialRegisters above, auto-assign the resources
+    // that have no explicit register at all, across all classes together,
+    // in true declaration order.
+    if (pSequentialRegisters)
+      bChanged |= AllocateSequentialUnallocatedRegisters(
+          DM, *pSequentialRegisters, AutoBindingSpace);
+
     return bChanged;
   }
 };
