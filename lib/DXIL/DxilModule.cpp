@@ -927,6 +927,14 @@ const vector<unique_ptr<DxilResource>> &DxilModule::GetUAVs() const {
   return m_UAVs;
 }
 
+void DxilModule::SetResourceDeclOrder(const vector<string> &DeclOrder) {
+  m_ResourceDeclOrder = DeclOrder;
+}
+
+const vector<string> &DxilModule::GetResourceDeclOrder() const {
+  return m_ResourceDeclOrder;
+}
+
 template <typename TResource>
 static void RemoveResources(std::vector<std::unique_ptr<TResource>> &vec,
                             std::unordered_set<unsigned> &immResID) {

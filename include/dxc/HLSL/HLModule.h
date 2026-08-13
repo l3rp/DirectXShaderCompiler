@@ -41,6 +41,7 @@ class GlobalVariable;
 class DIGlobalVariable;
 class DebugInfoFinder;
 class GetElementPtrInst;
+class Constant;
 } // namespace llvm
 
 namespace hlsl {
@@ -131,6 +132,19 @@ public:
   HLResource &GetUAV(unsigned idx);
   const HLResource &GetUAV(unsigned idx) const;
   const std::vector<std::unique_ptr<HLResource>> &GetUAVs() const;
+
+  // Records the resource identified by GlobalName (its unmangled decl
+  // name, unique at global scope by HLSL's own rules) as just declared, in
+  // true source order across every resource class. Used by
+  // -fsequential-auto-bindings to assign registers in declaration order
+  // instead of bucketing by resource class first. Identifying resources by
+  // name rather than by (Class, ID) or global symbol means this stays
+  // valid even though: a later pass can remove unused resources and shift
+  // everyone else's index, and a cbuffer's global symbol isn't actually
+  // set until FinishCBuffer runs, well after declaration order is recorded
+  // here.
+  void AddResourceDeclOrder(const std::string &GlobalName);
+  const std::vector<std::string> &GetResourceDeclOrder() const;
 
   void RemoveGlobal(llvm::GlobalVariable *GV);
   void RemoveFunction(llvm::Function *F);
@@ -313,6 +327,10 @@ private:
   llvm::MDTuple *EmitDxilShaderProperties();
   // LLVM used.
   std::vector<llvm::GlobalVariable *> m_LLVMUsed;
+
+  // Global symbol of each resource, in the order it was declared in the
+  // source, across all resource classes. See AddResourceDeclOrder.
+  std::vector<std::string> m_ResourceDeclOrder;
 
   // Type annotations.
   std::unique_ptr<DxilTypeSystem> m_pTypeSystem;

@@ -351,7 +351,6 @@ CGMSHLSLRuntime::CGMSHLSLRuntime(CodeGenModule &CGM)
                      ? hlsl::DXIL::kLegacyLayoutString
                      : hlsl::DXIL::kNewLayoutString),
       Entry() {
-
   const hlsl::ShaderModel *SM =
       hlsl::ShaderModel::GetByName(CGM.getCodeGenOpts().HLSLProfile.c_str());
   // Only accept valid, 6.0 shader model.
@@ -2947,9 +2946,10 @@ hlsl::InterpolationMode CGMSHLSLRuntime::GetInterpMode(const Decl *decl,
 
 /// Add resource to the program
 void CGMSHLSLRuntime::addResource(Decl *D) {
-  if (HLSLBufferDecl *BD = dyn_cast<HLSLBufferDecl>(D))
-    GetOrCreateCBuffer(BD);
-  else if (VarDecl *VD = dyn_cast<VarDecl>(D)) {
+  if (HLSLBufferDecl *BD = dyn_cast<HLSLBufferDecl>(D)) {
+    HLCBuffer &CB = GetOrCreateCBuffer(BD);
+    m_pHLModule->AddResourceDeclOrder(CB.GetGlobalName());
+  } else if (VarDecl *VD = dyn_cast<VarDecl>(D)) {
     hlsl::DxilResourceBase::Class resClass = TypeToClass(VD->getType());
     // Save resource properties for global variables.
     if (resClass != DXIL::ResourceClass::Invalid) {
@@ -2996,22 +2996,37 @@ void CGMSHLSLRuntime::addResource(Decl *D) {
     }
 
     switch (resClass) {
-    case hlsl::DxilResourceBase::Class::Sampler:
-      AddSampler(VD);
+    case hlsl::DxilResourceBase::Class::Sampler: {
+      uint32_t id = AddSampler(VD);
+      m_pHLModule->AddResourceDeclOrder(
+          m_pHLModule->GetSampler(id).GetGlobalName());
       break;
-    case hlsl::DxilResourceBase::Class::UAV:
-    case hlsl::DxilResourceBase::Class::SRV:
-      AddUAVSRV(VD, resClass);
+    }
+    case hlsl::DxilResourceBase::Class::UAV: {
+      uint32_t id = AddUAVSRV(VD, resClass);
+      m_pHLModule->AddResourceDeclOrder(
+          m_pHLModule->GetUAV(id).GetGlobalName());
       break;
+    }
+    case hlsl::DxilResourceBase::Class::SRV: {
+      uint32_t id = AddUAVSRV(VD, resClass);
+      m_pHLModule->AddResourceDeclOrder(
+          m_pHLModule->GetSRV(id).GetGlobalName());
+      break;
+    }
     case hlsl::DxilResourceBase::Class::Invalid: {
       // normal global constant, add to global CB
       HLCBuffer &globalCB = GetGlobalCBuffer();
       AddConstant(VD, globalCB);
       break;
     }
-    case DXIL::ResourceClass::CBuffer:
-      AddConstantBufferView(VD);
+    case DXIL::ResourceClass::CBuffer: {
+      uint32_t id = AddConstantBufferView(VD);
+      if (id != UINT_MAX)
+        m_pHLModule->AddResourceDeclOrder(
+            m_pHLModule->GetCBuffer(id).GetGlobalName());
       break;
+    }
     }
   }
 }

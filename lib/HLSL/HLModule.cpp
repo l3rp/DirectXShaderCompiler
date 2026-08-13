@@ -220,6 +220,14 @@ const vector<unique_ptr<HLResource>> &HLModule::GetUAVs() const {
   return m_UAVs;
 }
 
+void HLModule::AddResourceDeclOrder(const std::string &GlobalName) {
+  m_ResourceDeclOrder.push_back(GlobalName);
+}
+
+const vector<string> &HLModule::GetResourceDeclOrder() const {
+  return m_ResourceDeclOrder;
+}
+
 void HLModule::RemoveFunction(llvm::Function *F) {
   DXASSERT_NOMSG(F != nullptr);
   m_DxilFunctionPropsMap.erase(F);
